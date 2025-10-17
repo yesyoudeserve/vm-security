@@ -103,6 +103,43 @@ mostrar_estado_atual() {
 fase1_adicionar_porta() {
     log_fase "FASE 1: Adicionar Nova Porta SSH"
     echo ""
+    
+    # Verifica se já tem configuração SSH customizada
+    local portas_atuais=$(sudo grep "^Port " /etc/ssh/sshd_config 2>/dev/null || echo "")
+    
+    if [[ -n "$portas_atuais" ]]; then
+        echo "⚠️  Detectada configuração SSH existente:"
+        echo "$portas_atuais"
+        echo ""
+        echo "Opções:"
+        echo "  1) Continuar e adicionar outra porta"
+        echo "  2) Pular Fase 1 (manter configuração atual)"
+        echo "  3) Cancelar"
+        echo ""
+        read -p "Escolha (1/2/3): " opcao
+        
+        case "$opcao" in
+            1)
+                log_info "Continuando com adição de porta..."
+                ;;
+            2)
+                log_info "Pulando Fase 1 - mantendo configuração atual"
+                # Salva estado como concluído
+                local porta_existente=$(echo "$portas_atuais" | grep -v "22$" | head -1 | awk '{print $2}')
+                if [[ -n "$porta_existente" ]]; then
+                    salvar_estado "FASE_1_NOVA_PORTA" "concluido"
+                    salvar_estado "PORTA_SSH" "$porta_existente"
+                    salvar_estado "BACKUP_DIR" "$BACKUP_DIR"
+                fi
+                return 0
+                ;;
+            3)
+                log_info "Fase 1 cancelada"
+                return 0
+                ;;
+        esac
+    fi
+    
     echo "Esta fase irá:"
     echo "  • Adicionar uma nova porta SSH (mantém a porta 22)"
     echo "  • Configurar firewall para a nova porta"
@@ -338,6 +375,9 @@ fase2_criar_usuario() {
     usermod -aG sudo "$novo_usuario"
     log_info "✓ Sudo habilitado"
     
+    # Salva o usuário atual (antes de virar o novo)
+    salvar_estado "USUARIO_ANTIGO" "$USUARIO_ATUAL"
+    
     # Configurar sudo sem senha (NOPASSWD)
     log_info "Configurando sudo sem senha..."
     echo "$novo_usuario ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/"$novo_usuario"
@@ -423,6 +463,18 @@ fase3_limpeza_final() {
     
     local porta=$(carregar_estado "PORTA_SSH")
     local usuario=$(carregar_estado "NOVO_USUARIO")
+    local usuario_antigo=$(carregar_estado "USUARIO_ANTIGO")
+    
+    # Se não tiver usuário antigo salvo, tenta detectar
+    if [[ -z "$usuario_antigo" ]]; then
+        # Lista usuários comuns (ubuntu, opc, admin, etc)
+        for u in ubuntu opc admin centos; do
+            if id "$u" &>/dev/null && [[ "$u" != "$usuario" ]]; then
+                usuario_antigo="$u"
+                break
+            fi
+        done
+    fi
     
     log_warning "⚠️  Certifique-se que testou:"
     log_warning "  1. Acesso na porta $porta"
@@ -443,7 +495,17 @@ fase3_limpeza_final() {
     
     # Backup
     local backup_dir=$(carregar_estado "BACKUP_DIR")
+    
+    # Se não tiver backup_dir ou não existir, cria um novo
+    if [[ -z "$backup_dir" ]] || [[ ! -d "$backup_dir" ]]; then
+        backup_dir="/root/backup_ssh_fase3_$(date +%Y%m%d_%H%M%S)"
+        mkdir -p "$backup_dir"
+        salvar_estado "BACKUP_DIR" "$backup_dir"
+        log_info "Criado diretório de backup: $backup_dir"
+    fi
+    
     cp /etc/ssh/sshd_config "$backup_dir/sshd_config.fase3"
+    log_info "Backup salvo: $backup_dir/sshd_config.fase3"
     
     # Aplicar hardening
     log_info "Aplicando hardening final..."
@@ -525,9 +587,10 @@ EOF
     echo "     • Privilégios sudo: SEM SENHA (NOPASSWD)"
     
     if [[ "$(carregar_estado "USUARIO_ANTIGO_DESABILITADO")" == "sim" ]]; then
-        echo "     • Usuário $USUARIO_ATUAL: DESABILITADO"
+        local usuario_desabilitado=$(carregar_estado "USUARIO_ANTIGO")
+        echo "     • Usuário $usuario_desabilitado: DESABILITADO"
     else
-        echo "     • Usuário $USUARIO_ATUAL: AINDA ATIVO"
+        echo "     • Nenhum usuário antigo desabilitado"
     fi
     
     echo ""

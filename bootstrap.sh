@@ -118,6 +118,8 @@ baixar_scripts() {
         "ssh_hardening.sh"
         "teste_usuario.sh"
         "corrigir_usuario.sh"
+        "desabilitar_usuario.sh"
+        "marcar_fases.sh"
     )
     
     for script in "${scripts[@]}"; do
