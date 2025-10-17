@@ -60,7 +60,7 @@ Ao fazer hardening SSH, é fácil:
 - 🚫 Quebrar configurações existentes
 - 🚫 Não testar adequadamente antes de finalizar
 
-### Nossa Solução
+### A Solução
 
 Este toolkit usa uma abordagem **incremental com testes entre cada fase**:
 
